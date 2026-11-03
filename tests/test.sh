@@ -72,6 +72,17 @@ env HOME="$work/case/home" WSL_SSH_CONFIG_SYNC_TARGET="$dst" timeout 5 "$script"
 [ $? -eq 1 ] || fail "FIFO target should exit 1 without blocking"
 [ -p "$dst" ] || fail "FIFO target was replaced"
 
+# A write that fails after the temporary file exists (no ~/.ssh/config to read) keeps the old file
+# and removes the temporary file.
+setup
+printf '%s\nHost old\n' "$header" > "$dst"
+cp "$dst" "$work/dst.before"
+rm "$src"
+run
+[ $? -ne 0 ] || fail "missing source should exit non-zero"
+cmp -s "$dst" "$work/dst.before" || fail "failed write changed the existing file"
+[ "$(ls -A "$work/case/win")" = "wsl-synced-config" ] || fail "failed write left a temporary file beside the target"
+
 # A failed write leaves the existing generated file intact. chmod cannot block root, so skip there.
 if [ "$(id -u)" -ne 0 ]; then
   setup

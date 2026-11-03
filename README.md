@@ -69,7 +69,7 @@ Include wsl-synced-config
 
 If the file already has an `Include wsl-synced-config` line somewhere else, move it to the top instead of adding a second one. This is a one-time manual edit so that nothing but you ever rewrites the Windows config.
 
-The line goes first because OpenSSH uses the first value it obtains, so the WSL side wins, and because a line at the top cannot end up inside a `Host` block. When the same `Host` appears on both sides, the WSL side wins option by option and the two are mixed, so duplicate entries on the Windows side can be deleted.
+The line goes first because OpenSSH uses the first value it obtains, so the WSL side wins, and because a line at the top cannot end up inside a `Host` block. When the same `Host` appears on both sides, the two are merged option by option and the WSL side wins where both set the same option. You can delete options that the Windows entry repeats from the WSL side; keep any option that only the Windows entry sets.
 
 **4. Enable it**
 
