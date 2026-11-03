@@ -10,37 +10,35 @@ failures=0
 
 fail() { echo "FAIL: $1" >&2; failures=$((failures + 1)); }
 
-# Fresh HOME, source, target and state paths for each case.
+# Fresh HOME and Windows directory for each case. The script reads $HOME/.ssh/config and keeps
+# its record under $XDG_STATE_HOME (default $HOME/.local/state).
 setup() {
   rm -rf "$work/case"
-  mkdir -p "$work/case/home" "$work/case/win"
-  src="$work/case/home/config"
+  mkdir -p "$work/case/home/.ssh" "$work/case/win"
+  src="$work/case/home/.ssh/config"
   dst="$work/case/win/config"
-  state="$work/case/state/last-synced"
+  state="$work/case/home/.local/state/wsl-ssh-config-sync/last-synced"
   printf 'Host a\n  HostName 192.0.2.1\n' > "$src"
 }
 
 run() {
-  env HOME="$work/case/home" \
-    WSL_SSH_CONFIG_SYNC_SOURCE="$src" \
-    WSL_SSH_CONFIG_SYNC_TARGET="$dst" \
-    WSL_SSH_CONFIG_SYNC_STATE="$state" \
+  env -u XDG_STATE_HOME HOME="$work/case/home" WSL_SSH_CONFIG_SYNC_TARGET="$dst" \
     "$script" 2>/dev/null
 }
 
 # A missing target setting must stop with exit 2 instead of guessing a path.
 setup
-env -u WSL_SSH_CONFIG_SYNC_TARGET HOME="$work/case/home" WSL_SSH_CONFIG_SYNC_SOURCE="$src" \
-  WSL_SSH_CONFIG_SYNC_STATE="$state" "$script" 2>/dev/null
+env -u WSL_SSH_CONFIG_SYNC_TARGET -u XDG_STATE_HOME HOME="$work/case/home" "$script" 2>/dev/null
 [ $? -eq 2 ] || fail "unset target should exit 2"
 [ ! -e "$state" ] || fail "unset target should not write state"
 
 # First run: no sync record and the Windows file differs, so it must not be overwritten.
 setup
 printf 'Host windows-only\n' > "$dst"
+cp "$dst" "$work/dst.before"
 run
 [ $? -eq 1 ] || fail "first run with differing target should exit 1"
-[ "$(cat "$dst")" = "Host windows-only" ] || fail "first run overwrote the Windows file"
+cmp -s "$dst" "$work/dst.before" || fail "first run overwrote the Windows file"
 [ ! -e "$state" ] || fail "refused run should not write state"
 
 # Already identical: succeeds and records state so later saves can sync.
@@ -65,10 +63,12 @@ setup
 mkdir -p "$(dirname "$state")"
 printf 'old\n' > "$state"
 printf 'old\nHost edited-on-windows\n' > "$dst"
+cp "$dst" "$work/dst.before"
+cp "$state" "$work/state.before"
 run
 [ $? -eq 1 ] || fail "edited target should exit 1"
-[ "$(tail -n 1 "$dst")" = "Host edited-on-windows" ] || fail "edited target was overwritten"
-[ "$(cat "$state")" = "old" ] || fail "refused run changed state"
+cmp -s "$dst" "$work/dst.before" || fail "edited target was changed"
+cmp -s "$state" "$work/state.before" || fail "refused run changed state"
 
 # No Windows file yet: nothing can be lost, so create it (and the state directory).
 setup
