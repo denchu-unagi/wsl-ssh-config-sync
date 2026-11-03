@@ -1,5 +1,5 @@
 [Unit]
-Description=Copy ~/.ssh/config to the Windows OpenSSH config
+Description=Write ~/.ssh/config to the file the Windows OpenSSH config includes
 # A burst of saves would otherwise hit the start limit, which stops the path unit and silently ends syncing.
 StartLimitIntervalSec=0
 
