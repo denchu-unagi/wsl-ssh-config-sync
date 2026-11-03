@@ -8,7 +8,7 @@ Keeps `~/.ssh/config` in WSL as the source of truth and copies it to the Windows
 
 ## Why
 
-Pointing WSL at the Windows config does not work: an `Include` of a `/mnt/c` file, or a symlink to it, makes WSL's `ssh` refuse the file with `Bad owner or permissions`, because DrvFs (without the `metadata` mount option) reports those files as mode 0777. The same happens in the other direction, when Windows `ssh` includes `\\wsl.localhost\<distro>\home\<you>\.ssh\config`.
+Pointing WSL at the Windows config does not work: an `Include` of a `/mnt/c` file, or a symlink to it, makes WSL's `ssh` refuse the file with `Bad owner or permissions`: Windows drives mounted without the `metadata` option show every file as mode 0777. The same error happens in the other direction, when Windows `ssh` includes `\\wsl.localhost\<distro>\home\<you>\.ssh\config`.
 
 So the WSL side is the source of truth and a plain copy is made to Windows. Write keys as `IdentityFile ~/.ssh/<key>`: Windows OpenSSH expands `~` to `%USERPROFILE%`, so the same config works on both sides, as long as a key with that name exists on each side.
 
@@ -39,24 +39,34 @@ curl -fsSL "$base/systemd/wsl-ssh-config-sync.service" -o ~/.config/systemd/user
 ```sh
 winhome=$(wslpath "$(cmd.exe /c 'echo %USERPROFILE%' 2>/dev/null | tr -d '\r')")
 mkdir -p ~/.config/wsl-ssh-config-sync
-echo "WSL_SSH_CONFIG_SYNC_TARGET=$winhome/.ssh/config" > ~/.config/wsl-ssh-config-sync/env
+printf "WSL_SSH_CONFIG_SYNC_TARGET='%s'\n" "$winhome/.ssh/config" > ~/.config/wsl-ssh-config-sync/env
 cat ~/.config/wsl-ssh-config-sync/env
 ```
 
-**3. Align both sides once, before the first sync**
+The value is quoted so that a Windows user name with spaces works both for the service and for `.` in a shell.
+
+**3. Back up the Windows config**
 
 ```sh
 . ~/.config/wsl-ssh-config-sync/env
-target="$WSL_SSH_CONFIG_SYNC_TARGET"
-[ -e "$target" ] && cp "$target" "$target.bak"
-# Merge Hosts that only exist on Windows into ~/.ssh/config,
-# and write IdentityFile as ~/.ssh/<key>.
-cp ~/.ssh/config "$target"
+mkdir -p "$(dirname "$WSL_SSH_CONFIG_SYNC_TARGET")"
+[ -e "$WSL_SSH_CONFIG_SYNC_TARGET" ] && cp "$WSL_SSH_CONFIG_SYNC_TARGET" "$WSL_SSH_CONFIG_SYNC_TARGET.bak-$(date +%Y%m%d%H%M%S)"
 ```
 
-Making the two files identical here matters: on the very first run the sync refuses to overwrite a Windows file that differs, and stops with exit 1.
+**4. Merge the Windows-only entries into `~/.ssh/config`**
 
-**4. Enable it**
+Do this by hand in an editor. Copy every `Host` block that exists only in the Windows config into `~/.ssh/config`, and write keys as `IdentityFile ~/.ssh/<key>`. The next step overwrites the Windows config, so anything not merged here is gone from it (the backup from step 3 still has it).
+
+**5. Make both sides identical**
+
+```sh
+. ~/.config/wsl-ssh-config-sync/env
+cp ~/.ssh/config "$WSL_SSH_CONFIG_SYNC_TARGET"
+```
+
+This matters: on the very first run the sync refuses to overwrite a Windows file that differs, and stops with exit 1.
+
+**6. Enable it**
 
 ```sh
 systemctl --user daemon-reload
@@ -67,7 +77,7 @@ systemctl --user status wsl-ssh-config-sync.path
 
 The service runs first while both files are identical, so it records the current content and succeeds.
 
-**5. Check that it works**
+**7. Check that it works**
 
 ```sh
 . ~/.config/wsl-ssh-config-sync/env
@@ -86,7 +96,7 @@ rm -f ~/.local/bin/wsl-ssh-config-sync \
       ~/.config/systemd/user/wsl-ssh-config-sync.path \
       ~/.config/systemd/user/wsl-ssh-config-sync.service \
       ~/.config/wsl-ssh-config-sync/env
-rm -rf ~/.local/state/wsl-ssh-config-sync
+rm -rf "${XDG_STATE_HOME:-$HOME/.local/state}/wsl-ssh-config-sync"
 systemctl --user daemon-reload
 ```
 
@@ -104,16 +114,22 @@ The source is always `~/.ssh/config` and cannot be changed: the path unit watche
 1. The script copies `~/.ssh/config` into a temporary snapshot and uses only that snapshot.
 2. It compares the snapshot with the target.
 3. If the target exists, differs from the snapshot, and also differs from the record of the last sync, the Windows file was edited directly: the script prints recovery steps and stops without touching anything.
-4. Otherwise it copies the snapshot over the target (also when the target does not exist yet).
-5. It copies the snapshot to the record file, so the next run can tell a normal change from a direct edit on Windows.
+4. Otherwise it writes the snapshot to a temporary file next to the target and renames it over the target (also when the target does not exist yet), so a failed copy never leaves a half-written Windows config. The renamed file takes the permissions inherited from the Windows `.ssh` folder.
+5. It records the snapshot the same way, so the next run can tell a normal change from a direct edit on Windows.
 
 Exit codes:
 
 | Code | Meaning |
 | --- | --- |
 | 0 | Synced, or already identical |
-| 1 | The Windows file was edited after the last sync; nothing was changed |
+| 1 | Refused or failed: the Windows file was edited after the last sync, or a copy failed. The log says which. |
 | 2 | `WSL_SSH_CONFIG_SYNC_TARGET` is not set; nothing was changed |
+
+If the target was renamed into place but recording the snapshot then failed, the next change is treated as a direct Windows edit and refused. Nothing is lost; recover as below.
+
+## Limitations
+
+The check and the rename are not atomic with Windows editors. A save on the Windows side that lands in the few milliseconds between them is overwritten. Edit only `~/.ssh/config` in WSL.
 
 ## When syncing stops
 
@@ -133,8 +149,9 @@ To recover:
 
    ```sh
    . ~/.config/wsl-ssh-config-sync/env
-   mkdir -p ~/.local/state/wsl-ssh-config-sync
-   cp "$WSL_SSH_CONFIG_SYNC_TARGET" ~/.local/state/wsl-ssh-config-sync/last-synced
+   state="${XDG_STATE_HOME:-$HOME/.local/state}/wsl-ssh-config-sync"
+   mkdir -p "$state"
+   cp "$WSL_SSH_CONFIG_SYNC_TARGET" "$state/last-synced"
    ```
 
 3. Resume: `systemctl --user start wsl-ssh-config-sync.service`

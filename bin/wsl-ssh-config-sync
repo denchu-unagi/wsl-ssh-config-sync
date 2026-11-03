@@ -18,14 +18,18 @@ fi
 
 src="$HOME/.ssh/config"
 state="${XDG_STATE_HOME:-$HOME/.local/state}/wsl-ssh-config-sync/last-synced"
+target_tmp="$target.wsl-ssh-config-sync.tmp"
+# Created up front so the recovery command printed below works even before the first successful sync.
+mkdir -p "$(dirname "$state")"
 
 # Snapshot once so the comparison, the copy and the record all use the same bytes even if the file is saved again.
 snap=$(mktemp)
-trap 'rm -f "$snap"' EXIT
+trap 'rm -f "$snap" "$target_tmp" "$state.tmp"' EXIT
 cp "$src" "$snap"
 
 if ! cmp -s "$snap" "$target"; then
   # A target that also differs from the record was edited on Windows; stop instead of discarding that edit.
+  # shortcut: a Windows save landing between this check and the rename below is still overwritten; Windows editors offer no lock to take.
   if [ -e "$target" ] && ! cmp -s "$target" "$state"; then
     cat >&2 <<EOF
 wsl-ssh-config-sync: $target changed after the last sync; refusing to overwrite it.
@@ -37,8 +41,10 @@ To resume syncing:
 EOF
     exit 1
   fi
-  cp "$snap" "$target"
+  # Write beside the target and rename, so a failed copy never leaves a half-written Windows config.
+  cp "$snap" "$target_tmp"
+  mv "$target_tmp" "$target"
 fi
 
-mkdir -p "$(dirname "$state")"
-(umask 077; cp "$snap" "$state")
+(umask 077; cp "$snap" "$state.tmp")
+mv "$state.tmp" "$state"

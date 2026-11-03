@@ -1,10 +1,11 @@
 #!/bin/sh
-# Tests for bin/wsl-ssh-config-sync. Run from this directory: sh test.sh
+# Tests for bin/wsl-ssh-config-sync. Run from this directory: ./test.sh
 # Uses temporary files only; never touches the real ~/.ssh or /mnt/c.
 set -u
 
 script=$(cd "$(dirname "$0")/.." && pwd)/bin/wsl-ssh-config-sync
-work=$(mktemp -d)
+# Stop here if mktemp fails: an empty $work would make the cleanup below remove /case.
+work=$(mktemp -d) && [ -d "$work" ] || { echo "mktemp -d failed" >&2; exit 1; }
 trap 'rm -rf "$work"' EXIT
 failures=0
 
@@ -40,6 +41,7 @@ run
 [ $? -eq 1 ] || fail "first run with differing target should exit 1"
 cmp -s "$dst" "$work/dst.before" || fail "first run overwrote the Windows file"
 [ ! -e "$state" ] || fail "refused run should not write state"
+[ -d "$(dirname "$state")" ] || fail "refused run should create the state directory used by the recovery command"
 
 # Already identical: succeeds and records state so later saves can sync.
 setup
@@ -57,6 +59,7 @@ run
 [ $? -eq 0 ] || fail "normal sync should exit 0"
 cmp -s "$src" "$dst" || fail "normal sync did not copy source to target"
 cmp -s "$src" "$state" || fail "normal sync did not update state"
+[ ! -e "$dst.wsl-ssh-config-sync.tmp" ] || fail "normal sync left a temporary file beside the target"
 
 # The Windows file was edited after the last sync: keep the edit and exit 1.
 setup
