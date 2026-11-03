@@ -1,0 +1,8 @@
+[Unit]
+Description=Watch ~/.ssh/config and sync it to Windows
+
+[Path]
+PathChanged=%h/.ssh/config
+
+[Install]
+WantedBy=default.target

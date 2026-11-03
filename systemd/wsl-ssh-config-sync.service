@@ -1,0 +1,13 @@
+[Unit]
+Description=Write ~/.ssh/config to the file the Windows OpenSSH config includes
+# A burst of saves would otherwise hit the start limit, which stops the path unit and silently ends syncing.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/wsl-ssh-config-sync/env
+ExecStart=%h/.local/bin/wsl-ssh-config-sync
+
+[Install]
+# WantedBy makes the service run at WSL startup so changes made while it was stopped are picked up.
+WantedBy=default.target
