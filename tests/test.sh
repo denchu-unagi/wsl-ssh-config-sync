@@ -38,7 +38,7 @@ setup
 run
 [ $? -eq 0 ] || fail "first run should exit 0"
 cmp -s "$dst" "$work/expected" || fail "first run did not write header + source"
-[ ! -e "$dst.wsl-ssh-config-sync.tmp" ] || fail "first run left a temporary file beside the target"
+[ "$(ls -A "$work/case/win")" = "wsl-synced-config" ] || fail "first run left a temporary file beside the target"
 
 # Later runs replace a file this tool generated with the new content.
 setup
@@ -51,9 +51,12 @@ cmp -s "$dst" "$work/expected" || fail "regenerating did not replace the old gen
 setup
 printf 'Host windows-only\n' > "$dst"
 cp "$dst" "$work/dst.before"
+# A neighbouring file the tool did not create must survive too.
+printf 'keep\n' > "$dst.wsl-ssh-config-sync.tmp"
 run
 [ $? -eq 1 ] || fail "foreign target should exit 1"
 cmp -s "$dst" "$work/dst.before" || fail "foreign target was overwritten"
+[ -e "$dst.wsl-ssh-config-sync.tmp" ] || fail "refused run removed a file it did not create"
 
 # A failed write leaves the existing generated file intact. chmod cannot block root, so skip there.
 if [ "$(id -u)" -ne 0 ]; then
