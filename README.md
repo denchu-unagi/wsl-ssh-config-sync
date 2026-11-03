@@ -25,7 +25,7 @@ Only `~/.ssh/config` itself is copied. If it includes other files (for example `
 - POSIX `sh` and coreutils
 - To write while no WSL shell is open, enable lingering: `loginctl enable-linger "$USER"`
 
-Tested on Ubuntu 26.04 under WSL 2 (WSL 3.0.3.0, systemd 259) with the Windows OpenSSH client.
+Tested on Ubuntu 26.04 under WSL 2 (WSL app 3.0.3.0, systemd 259) with the Windows OpenSSH client.
 
 ## Installation
 
