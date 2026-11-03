@@ -1,0 +1,44 @@
+#!/bin/sh
+# Copies ~/.ssh/config (the source of truth) to the Windows OpenSSH config; the path unit starts it on every save.
+set -eu
+
+target=${WSL_SSH_CONFIG_SYNC_TARGET:-}
+if [ -z "$target" ]; then
+  cat >&2 <<'EOF'
+wsl-ssh-config-sync: WSL_SSH_CONFIG_SYNC_TARGET is not set.
+
+Set it to the Windows OpenSSH config path, for example:
+  WSL_SSH_CONFIG_SYNC_TARGET=/mnt/c/Users/<you>/.ssh/config
+
+Write that line to the env file the service reads:
+  ~/.config/wsl-ssh-config-sync/env
+EOF
+  exit 2
+fi
+
+src="$HOME/.ssh/config"
+state="${XDG_STATE_HOME:-$HOME/.local/state}/wsl-ssh-config-sync/last-synced"
+
+# Snapshot once so the comparison, the copy and the record all use the same bytes even if the file is saved again.
+snap=$(mktemp)
+trap 'rm -f "$snap"' EXIT
+cp "$src" "$snap"
+
+if ! cmp -s "$snap" "$target"; then
+  # A target that also differs from the record was edited on Windows; stop instead of discarding that edit.
+  if [ -e "$target" ] && ! cmp -s "$target" "$state"; then
+    cat >&2 <<EOF
+wsl-ssh-config-sync: $target changed after the last sync; refusing to overwrite it.
+
+To resume syncing:
+  1. Merge the changes from $target into $src.
+  2. cp "$target" "$state"
+  3. systemctl --user start wsl-ssh-config-sync.service
+EOF
+    exit 1
+  fi
+  cp "$snap" "$target"
+fi
+
+mkdir -p "$(dirname "$state")"
+(umask 077; cp "$snap" "$state")
