@@ -58,6 +58,20 @@ run
 cmp -s "$dst" "$work/dst.before" || fail "foreign target was overwritten"
 [ -e "$dst.wsl-ssh-config-sync.tmp" ] || fail "refused run removed a file it did not create"
 
+# A dangling symlink at the target path is not a generated file; the link must stay.
+setup
+ln -s "$work/case/win/missing" "$dst"
+run
+[ $? -eq 1 ] || fail "dangling symlink target should exit 1"
+[ -L "$dst" ] || fail "dangling symlink target was replaced"
+
+# A FIFO at the target path must be refused promptly (head would block on it) and kept.
+setup
+mkfifo "$dst"
+env HOME="$work/case/home" WSL_SSH_CONFIG_SYNC_TARGET="$dst" timeout 5 "$script" 2>/dev/null
+[ $? -eq 1 ] || fail "FIFO target should exit 1 without blocking"
+[ -p "$dst" ] || fail "FIFO target was replaced"
+
 # A failed write leaves the existing generated file intact. chmod cannot block root, so skip there.
 if [ "$(id -u)" -ne 0 ]; then
   setup
